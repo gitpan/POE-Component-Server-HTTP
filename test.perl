@@ -5,7 +5,7 @@ use Data::Dumper;
 
 #sub POE::Kernel::TRACE_DEFAULT () { 1 }
 #sub POE::Kernel::ASSERT_DEFAULT () { 1 }
-
+#sub POE::Kernel::TRACE_DEFAULT () { 1 }
 BEGIN {
 	require 'HTTP.pm';
 	POE::Component::Server::HTTP->import();
@@ -63,6 +63,7 @@ sub callback {
     my $response = shift;
     my $connection = $request->connection;
     #my $cookie = CGI::Cookie->new(-name => "FOO", -value => "bar");
+
     $response->code('200');
     $response->push_header("Content-type", "text/html");
     #$response->push_header('Set-Cookie' => $cookie->as_string);

@@ -2,9 +2,11 @@ Changes
 HTTP.pm
 Makefile.PL
 MANIFEST
+SIGNATURE
 README
 test.pl
 test.perl
 lib/Connection.pm
 lib/Request.pm
 lib/Response.pm
+MANIFEST.skip

@@ -19,7 +19,7 @@ use POE::Component::Server::TCP;
 use Sys::Hostname qw(hostname);
 
 
-$VERSION = 0.02;
+$VERSION = 0.03;
 
 use POE::Component::Server::HTTP::Response;
 use POE::Component::Server::HTTP::Request;
@@ -34,44 +34,49 @@ my %default_headers = (
 
 
 sub new {
-    my $class = shift;
-    my $self = bless {@_},$class;
-    $self->{Headers} = { %default_headers,  ($self->{Headers} ? %{$self->{Headers}}: ())};
+  my $class = shift;
+  my $self = bless {@_},$class;
+  $self->{Headers} = { %default_headers,  ($self->{Headers} ? %{$self->{Headers}}: ())};
 
 
 
-    $self->{TransHandler} = [] unless($self->{TransHandler});
-    $self->{PreHandler} = {} unless($self->{PreHandler});
-    $self->{PostHandler} = {} unless($self->{PostHandler});
-    if(ref($self->{ContentHandler}) ne 'HASH') {
-	croak "You need a default content handler or a ContentHandler setup" unless(ref($self->{DefaultContentHandler}) eq 'CODE');
-	$self->{ContentHandler} = {};
-	$self->{ContentHandler}->{'/'} = $self->{DefaultContentHandler};
-    }
-    
+  $self->{TransHandler} = [] unless($self->{TransHandler});
+  $self->{PreHandler} = {} unless($self->{PreHandler});
+  $self->{PostHandler} = {} unless($self->{PostHandler});
+  if(ref($self->{ContentHandler}) ne 'HASH') {
+    croak "You need a default content handler or a ContentHandler setup" unless(ref($self->{DefaultContentHandler}) eq 'CODE');
+    $self->{ContentHandler} = {};
+    $self->{ContentHandler}->{'/'} = $self->{DefaultContentHandler};
+  }
+
+  $self->{Hostname} = hostname() unless($self->{Hostname});
+
+  my $alias = "PoCo::Server::HTTP::";
+  my $session =  POE::Session->create
+    (
+     inline_states => {
+		       _start => sub {
+			 $_[KERNEL]->alias_set($alias . $_[SESSION]->ID);
+		       },
+		       _stop => sub { },
+		       accept => \&accept,
+		       input => \&input,
+		       execute => \&execute,
+		       _signal => sub {},
+		       shutdown => sub {
+			 my ($kernel, $session, $heap) = @_[KERNEL, SESSION, HEAP];
+			 $kernel->call($alias . "TCP::" . $session->ID, "shutdown");
+			 $kernel->alias_remove($alias . $session->ID);
+		       },
+		      },
+     heap => { self => $self }
+    );
 
 
-
-    $self->{Hostname} = hostname() unless($self->{Hostname});
-
-    my $session =  POE::Session->new(
-				     _start => sub { 
-					 $poe_kernel->refcount_increment($_[SESSION]->ID(),"deamon");
-					 $_[HEAP]->{self} = $self;
-					 print "start\n" 
-					    
-					 },
-				     _stop => sub { print "stop\n"},
-				     accept => \&accept,
-				     input => \&input,
-				     execute => \&execute,
-				     _signal => sub {},
-				     );
-    
   POE::Component::Server::TCP->new( Port => $self->{Port}, Acceptor => sub {
-      $poe_kernel->post($session,'accept',@_[ARG0,ARG1,ARG2]);
-  });
-
+				      $poe_kernel->post($session,'accept',@_[ARG0,ARG1,ARG2]);
+				    });
+ 
 }
 
 
@@ -109,7 +114,6 @@ sub accept {
       $_[HEAP]->{wheels}->{$wheel->ID} = $wheel; 
       $_[HEAP]->{c}->{$wheel->ID} = $connection
 }
-
 
 sub execute {
     my $id = $_[ARG0];
@@ -248,7 +252,7 @@ POE::Component::Server::HTTP - Foundation of a POE HTTP Daemon
 
     use POE::Component::Server::HTTP;
     use HTTP::Status;
-    POE::Component::Server::HTTP->new(
+    $httpd = POE::Component::Server::HTTP->new(
        Port => 8000,
        ContentHandler => { '/' => \&handler },
        Headers => { Server => 'My Server' },
@@ -260,6 +264,8 @@ POE::Component::Server::HTTP - Foundation of a POE HTTP Daemon
 	$response->content("Hi, you fetched ". $request->uri);
 	return RC_OK;	
     }
+
+	POE::Kernel->call($httpd, "shutdown");
 
 =head1 DESCRIPTION
 
@@ -348,6 +354,12 @@ These handlers are run after the socket has been flushed.
 
 =back
 
+=head1 Events
+
+The C<shutdown> event may be sent to the component indicating that it should shut down.  The event may be sent using the return value of the I<new()> method (which is a session id) by either post()ing or call()ing.
+
+I've experienced some problems with the session not receiving the event when it gets post()ed so call() is advised.
+ 
 =head1 See Also
 
 Please also take a look at L<HTTP::Response>, L<HTTP::Request>, 
@@ -364,6 +376,8 @@ L<URI>, L<POE> and L<POE::Filter::HTTPD>
 =item Add a PoCo::Server::HTTP::Session that matches a http session against poe session using cookies or other state system
 
 =item Add more options to streaming
+
+=item Figure out why post()ed C<shutdown> events don't get received.
 
 =item Probably lots of other API changes
 

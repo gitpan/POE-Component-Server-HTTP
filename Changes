@@ -1,5 +1,10 @@
 Revision history for Perl extension POE::Component::Server::HTTP.
 
+0.03  Thu Nov 14 07:01:42 CET 2002
+	Applied patch https://rt.cpan.org/NoAuth/Bug.html?id=1609 from
+	Eric Calder to add a new shutdown event.
+	Added signature file
+
 0.02  2002-03-17
 	Incorpated long overdue patch from Matt Sargeant to support 5.005
 	Removed "use CGI::Cookie" since it wasn't used in the code.
