@@ -1,5 +1,11 @@
 Revision history for Perl extension POE::Component::Server::HTTP.
 
+0.04  Thu Oct  9 13:43:46 BST 2003
+        Removed old _signal handler
+        Specified correct dependencies in makefile
+	Imported into Fotango opensource CVS at
+        CVSROOT=:pserver:anonymous@she-ra.fotango.com:/var/repository
+
 0.03  Thu Nov 14 07:01:42 CET 2002
 	Applied patch https://rt.cpan.org/NoAuth/Bug.html?id=1609 from
 	Eric Calder to add a new shutdown event.

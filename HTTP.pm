@@ -19,7 +19,7 @@ use POE::Component::Server::TCP;
 use Sys::Hostname qw(hostname);
 
 
-$VERSION = 0.03;
+$VERSION = 0.04;
 
 use POE::Component::Server::HTTP::Response;
 use POE::Component::Server::HTTP::Request;
@@ -62,7 +62,6 @@ sub new {
 		       accept => \&accept,
 		       input => \&input,
 		       execute => \&execute,
-		       _signal => sub {},
 		       shutdown => sub {
 			 my ($kernel, $session, $heap) = @_[KERNEL, SESSION, HEAP];
 			 $kernel->call($alias . "TCP::" . $session->ID, "shutdown");
