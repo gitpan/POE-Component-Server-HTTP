@@ -3,13 +3,7 @@ use ExtUtils::MakeMaker;
 # the contents of the Makefile that is written.
 WriteMakefile(
     'NAME'		=> 'POE::Component::Server::HTTP',
-    'VERSION_FROM'	=> 'HTTP.pm', # finds $VERSION
-    'PM' => {
-    	'lib/Request.pm' => '${INST_LIBDIR}/HTTP/Request.pm',
-    	'lib/Connection.pm' => '${INST_LIBDIR}/HTTP/Connection.pm',
-    	'lib/Response.pm' => '${INST_LIBDIR}/HTTP/Response.pm',
-    	'HTTP.pm' => '${INST_LIBDIR}/HTTP.pm',
-    	},
+    'VERSION_FROM'	=> 'lib/POE/Component/Server/HTTP.pm', # finds $VERSION
     'PREREQ_PM'		=> {
 	POE => '0.27',
 	File::Spec => 0,
@@ -17,6 +11,6 @@ WriteMakefile(
 	HTTP::Status => 0,
     }, # e.g., Module::Name => 1.1
     ($] >= 5.005 ?    ## Add these new keywords supported since 5.005
-      (ABSTRACT_FROM => 'HTTP.pm', # retrieve abstract from module
+      (ABSTRACT_FROM => 'lib/POE/Component/Server/HTTP.pm', # retrieve abstract from module
        AUTHOR     => 'Arthur Bergman') : ()),
 );

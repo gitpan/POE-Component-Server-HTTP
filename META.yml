@@ -1,0 +1,13 @@
+#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
+name:         POE-Component-Server-HTTP
+version:      0.05
+version_from: lib/POE/Component/Server/HTTP.pm
+installdirs:  site
+requires:
+    File::Spec:                    0
+    HTTP::Status:                  0
+    HTTP::Date:                    0
+    POE:                           0.27
+
+distribution_type: module
+generated_by: ExtUtils::MakeMaker version 6.12

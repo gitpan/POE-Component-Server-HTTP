@@ -1,5 +1,11 @@
 Revision history for Perl extension POE::Component::Server::HTTP.
 
+0.05	Tuesday 27th July, 2004
+	Rejigged things into the new-fangled lib/*, t/*.t arrangement (richardc)
+	The Fotango opensource repository is now subversion:
+	http://opensource.fotango.com/svn/trunk/POE-Component-Server-HTTP/
+	HTTP/1.1 keepalive behaviour
+
 0.04  Thu Oct  9 13:43:46 BST 2003
         Removed old _signal handler
         Specified correct dependencies in makefile
