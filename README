@@ -1,0 +1,31 @@
+POE/Component/Server/HTTP version 0.01
+======================================
+
+This is the first experimental release of PoCo::Server::HTTP
+It makes it easy to write HTTP servers in POE.
+
+The design is roughly based on the ideas of mod_perl and lets you
+add hooks and intercept in a numbber of different stages.
+
+
+INSTALLATION
+
+To install this module type the following:
+
+   perl Makefile.PL
+   make
+   make test
+   make install
+
+DEPENDENCIES
+
+This module requires these other modules and libraries:
+
+POE 0.17_02
+
+COPYRIGHT AND LICENCE
+
+Released under the same terms as POE
+
+Copyright (C) 2002 Arthur Bergman
+

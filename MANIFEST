@@ -1,0 +1,10 @@
+Changes
+HTTP.pm
+Makefile.PL
+MANIFEST
+README
+test.pl
+test.perl
+Connection.pm
+Request.pm
+Response.pm
