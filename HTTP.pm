@@ -6,25 +6,24 @@ use Socket qw(inet_ntoa);
 use HTTP::Date;
 use HTTP::Status;
 use File::Spec;
+use Exporter();
 
-require Exporter;
-our @ISA = qw(Exporter);
+use vars qw(@ISA @EXPORT $VERSION);
+@ISA = qw(Exporter);
 use constant RC_WAIT => -1;
 use constant RC_DENY => -2;
-our @EXPORT = qw(RC_OK RC_WAIT RC_DENY);
+@EXPORT = qw(RC_OK RC_WAIT RC_DENY);
 
 use POE qw(Wheel::ReadWrite Driver::SysRW Session Filter::Stream Filter::HTTPD);
 use POE::Component::Server::TCP;
 use Sys::Hostname qw(hostname);
 
 
-use CGI::Cookie;
-use vars qw($VERSION);
-$VERSION = 0.01;
+$VERSION = 0.02;
 
-require 'Response.pm';
-require 'Request.pm';
-require 'Connection.pm';
+use POE::Component::Server::HTTP::Response;
+use POE::Component::Server::HTTP::Request;
+use POE::Component::Server::HTTP::Connection;
 
 use Carp;
 
@@ -113,7 +112,7 @@ sub accept {
 
 
 sub execute {
-    my $id = @_[ARG0];
+    my $id = $_[ARG0];
     my $self = $_[HEAP]->{self};
     my $connection = $_[HEAP]->{c}->{$id};
     my $handlers = $connection->{handlers};

@@ -1,5 +1,11 @@
 Revision history for Perl extension POE::Component::Server::HTTP.
 
+0.02  2002-03-17
+	Incorpated long overdue patch from Matt Sargeant to support 5.005
+	Removed "use CGI::Cookie" since it wasn't used in the code.
+	Changed typo to avoid warning (From Eric Calder).
+	Made the installation work as intended with the subclasses
+
 0.01  Wed Jan 16 21:57:03 2002
 	First release
 
