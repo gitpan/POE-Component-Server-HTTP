@@ -1,7 +1,5 @@
-
-package POE::Component::Server::HTTP::Response;
-
 use strict;
+package POE::Component::Server::HTTP::Response;
 
 use vars qw(@ISA);
 use HTTP::Response;
@@ -9,17 +7,30 @@ use HTTP::Response;
 
 use POE;
 
-
 sub streaming {
     my $self = shift;
-    if(@_) {
-	if($_[0]) {
-	    $self->{streaming} = 1;
-	} else {
-	    $self->{streaming} = 0;
-	}
+    if (@_) {
+        if ($_[0]) {
+            $self->{streaming} = 1;
+        }
+        else {
+            $self->{streaming} = 0;
+        }
     }
     return $self->{streaming};
+}
+
+sub is_error {
+    my $self = shift;
+    if (@_) {
+        if ($_[0]) {
+            $self->{is_error} = 1;
+        }
+        else {
+            $self->{is_error} = 0;
+        }
+    }
+    return $self->{is_error};
 }
 
 sub send {
@@ -29,9 +40,9 @@ sub send {
 
 sub continue {
     my $self = shift;
-    $poe_kernel->post($self->{connection}->{session},'execute',$self->{connection}->{my_id});
+    $poe_kernel->post($self->{connection}->{session},
+                      'execute' => $self->{connection}->{my_id});
 }
-
 
 sub close {
     my $self = shift;
@@ -40,16 +51,3 @@ sub close {
 }
 
 1;
-
-
-
-
-
-
-
-
-
-
-
-
-

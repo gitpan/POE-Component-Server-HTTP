@@ -1,8 +1,5 @@
-
-package POE::Component::Server::HTTP::Connection;
-
 use strict;
-
+package POE::Component::Server::HTTP::Connection;
 
 sub new {
     return bless {};
@@ -34,8 +31,8 @@ sub remote_logname {
 
 sub user {
     my $self = shift;
-    if(@_) {
-	$self->{user} = shift;
+    if (@_) {
+        $self->{user} = shift;
     }
     return $self->{user};
 }
@@ -69,18 +66,4 @@ sub request {
     return $self->{request};
 }
 
-
-
 1;
-
-
-
-
-
-
-
-
-
-
-
-

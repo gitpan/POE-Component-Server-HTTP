@@ -1,13 +1,14 @@
 Changes
 Makefile.PL
 MANIFEST
-MANIFEST.skip
-SIGNATURE
+MANIFEST.SKIP
 README
 test.perl
 lib/POE/Component/Server/HTTP.pm
 lib/POE/Component/Server/HTTP/Connection.pm
 lib/POE/Component/Server/HTTP/Request.pm
 lib/POE/Component/Server/HTTP/Response.pm
-t/compile.t
-META.yml                                Module meta-data (added by MakeMaker)
+t/00_compile.t
+t/10_run.t
+t/30_error.t
+META.yml                                 Module meta-data (added by MakeMaker)

@@ -1,15 +1,13 @@
-
 package POE::Component::Server::HTTP;
-
 use strict;
 use Socket qw(inet_ntoa);
 use HTTP::Date;
 use HTTP::Status;
 use File::Spec;
-use Exporter();
-
+use Exporter ();
 use vars qw(@ISA @EXPORT $VERSION);
 @ISA = qw(Exporter);
+
 use constant RC_WAIT => -1;
 use constant RC_DENY => -2;
 @EXPORT = qw(RC_OK RC_WAIT RC_DENY);
@@ -18,11 +16,13 @@ use POE qw(Wheel::ReadWrite Driver::SysRW Session Filter::Stream Filter::HTTPD);
 use POE::Component::Server::TCP;
 use Sys::Hostname qw(hostname);
 
-$VERSION = 0.05;
+$VERSION = "0.06";
 
 use POE::Component::Server::HTTP::Response;
 use POE::Component::Server::HTTP::Request;
 use POE::Component::Server::HTTP::Connection;
+
+use constant DEBUG => 0;
 
 use Carp;
 
@@ -30,38 +30,74 @@ my %default_headers = (
     "Server" => "POE HTTPD Compontent/$VERSION ($])",
    );
 
-
-
 sub new {
     my $class = shift;
-    my $self = bless {@_},$class;
+    my $self = bless {@_}, $class;
     $self->{Headers} = { %default_headers,  ($self->{Headers} ? %{$self->{Headers}}: ())};
 
     $self->{TransHandler} = [] unless($self->{TransHandler});
+    $self->{ErrorHandler} = {
+        '/' => \&default_http_error,
+    } unless($self->{ErrorHandler});
     $self->{PreHandler} = {} unless($self->{PreHandler});
     $self->{PostHandler} = {} unless($self->{PostHandler});
+
     if (ref($self->{ContentHandler}) ne 'HASH') {
-        croak "You need a default content handler or a ContentHandler setup" unless(ref($self->{DefaultContentHandler}) eq 'CODE');
+        croak "You need a default content handler or a ContentHandler setup"
+          unless(ref($self->{DefaultContentHandler}) eq 'CODE');
         $self->{ContentHandler} = {};
         $self->{ContentHandler}->{'/'} = $self->{DefaultContentHandler};
+    }
+    if (ref $self->{ErrorHandler} ne 'HASH') {
+        croak "ErrorHandler must be a hashref or a coderef"
+          unless(ref($self->{ErrorHandler}) eq 'CODE');
+        $self->{ErrorHandler}={'/' => $self->{ErrorHandler}};
+    }
+
+    # DWIM on these handlers
+    foreach my $phase (qw(PreHandler PostHandler)) {
+        # NOTE: we want the following 2 cases to fall through to the last case
+        if('CODE' eq ref $self->{$phase}) {     # CODE to { / => [ CODE ]}
+            $self->{$phase}={'/' => [$self->{$phase}]};
+        }
+        if('ARRAY' eq ref $self->{$phase}) {    # ARRAY to { / => ARRAY }
+            $self->{$phase}={'/' => $self->{$phase}};
+        }
+        if('HASH' eq ref $self->{$phase}) {     # check all hash keys
+            while(my($path, $todo)=each %{$self->{$phase}}) {
+                if('CODE' eq ref $todo) {
+                    $self->{$phase}{$path}=[$todo];
+                    next;
+                }
+                next if 'ARRAY' eq ref $todo;
+                croak "$phase\->{$path} must be an arrayref";
+            }
+            next;
+        }
+        croak "$phase must be a hashref";
     }
 
     $self->{Hostname} = hostname() unless($self->{Hostname});
 
-    my $alias = "PoCo::Server::HTTP::";
+    my $alias = "PoCo::Server::HTTP::[ID]";
+    my $tcp_alias = $alias . "::TCP";
     my $session =  POE::Session->create(
         inline_states => {
             _start => sub {
-                $_[KERNEL]->alias_set($alias . $_[SESSION]->ID);
+                my $id=$_[SESSION]->ID;
+                $alias =~ s/\[ID\]/$id/;
+                $tcp_alias =~ s/\[ID\]/$id/;
+                $_[KERNEL]->alias_set($alias);
             },
             _stop => sub { },
             accept => \&accept,
             input => \&input,
             execute => \&execute,
+            error => \&error,
             shutdown => sub {
                 my ($kernel, $session, $heap) = @_[KERNEL, SESSION, HEAP];
-                $kernel->call($alias . "TCP::" . $session->ID, "shutdown");
-                $kernel->alias_remove($alias . $session->ID);
+                $kernel->call($tcp_alias, "shutdown");
+                $kernel->alias_remove($alias);
             },
         },
         heap => { self => $self }
@@ -70,9 +106,19 @@ sub new {
 
     POE::Component::Server::TCP->new(
         Port => $self->{Port},
+        Address => $self->{Address},
+        Alias => $tcp_alias,
+        Error => sub {
+            $poe_kernel->post($session, 'error', @_[ARG0..ARG2]);
+        },
+#        ClientError => sub {
+#            $poe_kernel->post($session, 'error', @_[ARG0..ARG2]);
+#        },
         Acceptor => sub {
-            $poe_kernel->post($session,'accept',@_[ARG0,ARG1,ARG2]);
+            $poe_kernel->post($session,'accept',@_[ARG0..ARG2]);
         });
+
+    return { httpd => $alias, tcp => $tcp_alias };
 }
 
 sub handler_queue {
@@ -87,8 +133,45 @@ sub handler_queue {
        )];
 }
 
+sub error_queue {
+    return [qw(
+        Map
+        ErrorHandler
+        PostHandler
+        Cleanup
+       )];
+}
+
+# Set up queue for handling this request
+sub rebuild_queue {
+    my( $self, $handlers) = @_;
+    my $now = $handlers->{Queue}[0];      # what phase are we about to do?
+
+    if (not $now) {                      # this means we are post Cleanup
+        # (which could be keep-alive)
+        DEBUG and warn "Error post-Cleanup!";
+        # we need Map to turn set up ErrorHandler
+        $handlers->{Queue} = ['Map', 'ErrorHandler', 'Cleanup'];
+        # Note : sub error set up fake request/response objects, etc
+    }
+    elsif ($now eq 'TransHandler' or $now eq 'Map' or
+           $now eq 'PreHandler' or $now eq 'ContentHandler' or
+           $now eq 'Send' or $now eq 'PostHandler') {
+
+        $handlers->{Queue}=$self->error_queue;
+    }
+    elsif ($now eq 'Cleanup') {
+        # we need Map to turn set up ErrorHandler
+        unshift @{$handlers->{Queue}}, 'Map', 'ErrorHandler';
+    }
+
+    # clear these lists, so that Map builds new ones
+    $handlers->{PostHandler} = [];
+    $handlers->{PreHandler}  = [];
+}
+
 sub accept {
-    my ($socket,$remote_addr, $remote_port) = @_[ARG0,ARG1,ARG2];
+    my ($socket,$remote_addr, $remote_port) = @_[ARG0, ARG1, ARG2];
     my $self = $_[HEAP]->{self};
     my $connection = POE::Component::Server::HTTP::Connection->new();
     $connection->{remote_ip} = inet_ntoa($remote_addr);
@@ -100,7 +183,8 @@ sub accept {
         PreHandler   => [],
         ContentHandler => undef,
         PostHandler  => [],
-        Handler => $self->handler_queue,
+        # IMHO, Queue should be set in 'input' --PG
+        Queue => $self->handler_queue,
     };
 
     my $wheel = POE::Wheel::ReadWrite->new(
@@ -109,7 +193,10 @@ sub accept {
         Filter => POE::Filter::HTTPD->new(),
         InputEvent => 'input',
         FlushedEvent => 'execute',
+        ErrorEvent => 'error'
        );
+    DEBUG and warn "Accept remote_ip=$connection->{remote_ip} id=", $wheel->ID;
+
     $_[HEAP]->{wheels}->{$wheel->ID} = $wheel;
     $_[HEAP]->{c}->{$wheel->ID} = $connection
 }
@@ -117,6 +204,8 @@ sub accept {
 
 sub input {
     my ($request,$id) = @_[ARG0, ARG1];
+
+    DEBUG and warn "Input id=$id uri=", $request->uri->as_string;
     bless $request, 'POE::Component::Server::HTTP::Request';
     my $c = $_[HEAP]->{c}->{$id};
     my $self = $_[HEAP]->{self};
@@ -139,6 +228,64 @@ sub input {
     $poe_kernel->yield('execute',$id);
 }
 
+sub error {
+    my ($op, $errnum, $errstr, $id) = @_[ARG0..ARG3];
+    unless ( $_[HEAP]->{c}{$id} ) {
+        warn "Error $op $errstr ($errnum) happened after Cleanup!\n";
+        return;
+    }
+    my $c = $_[HEAP]->{c}->{$id};
+    my $self = $_[HEAP]->{self};
+
+    DEBUG and warn "$$: HTTP error op=$op errnum=$errnum errstr=$errstr id=$id\n";
+    if ($op eq 'accept') {
+        die  "$$: HTTP error op=$op errnum=$errnum errstr=$errstr id=$id\n";
+    }
+    elsif ($op eq 'read' or $op eq 'write') {
+        # connection closed or other error
+
+        ## Create some temporary objects if needed
+        unless($c->{request}) {
+            my $request = POE::Component::Server::HTTP::Request->new(
+                ERROR => '/'
+               );
+            $request->{connection} = $c;
+            $c->{request}=$request;
+        }
+        $c->{request}->header(Operation => $op);
+        $c->{request}->header(Errnum    => $errnum);
+        $c->{request}->header(Error     => $errstr);
+
+        unless ($c->{response}) {
+            my $response = POE::Component::Server::HTTP::Response->new();
+            $response->{connection} = $c;
+            $c->{response}=$response;
+        }
+        $c->{session} ||= $_[SESSION];
+        $c->{my_id}   ||= $id;
+        $c->{wheel}   ||= $_[HEAP]{wheels}{$id};
+
+        # mark everything hence forth as an error
+        $c->{request}->is_error(1);
+        $c->{response}->is_error(1);
+
+        # and rebuild the queue
+        $self->rebuild_queue($c->{handlers});
+        $poe_kernel->yield('execute',$id);
+    }
+}
+
+sub default_http_error {
+    my ($request, $response) = @_;
+
+    my $op = $request->header('Operation');
+    my $errstr = $request->header('Error');
+    my $errnum = $request->header('Errnum');
+    return if $errnum == 0 and $op eq 'read';     # socket closed
+
+    warn "Error during HTTP $op: $errstr ($errnum)\n";
+}
+
 
 sub execute {
     my $id = $_[ARG0];
@@ -149,107 +296,147 @@ sub execute {
     my $response = $connection->{response};
     my $request  = $connection->{request};
 
-    #print Data::Dumper::Dumper($handlers);
-
-    my $state = $handlers->{Handler}->[0];
+    my $state;
   HANDLERS:
     while (1) {
-        $state = $handlers->{Handler}->[0];
+        $state = $handlers->{Queue}->[0];
+        DEBUG and warn "Execute state=$state id=$id";
 
         if ($state eq 'Map') {
-            $self->state_Map( $request->uri->path, $handlers );
-            $state = shift @{$handlers->{Handler}};
+            $self->state_Map( $request->uri->path, $handlers, $request );
+            shift @{$handlers->{Queue}};
             next;
-        } elsif ($state eq 'Send') {
+        }
+        elsif ($state eq 'Send') {
             $self->state_Send( $response,  $_[HEAP]->{wheels}->{$id} );
-            $state = shift @{$handlers->{Handler}};
+            shift @{$handlers->{Queue}};
             last;
-        } elsif ($state eq 'ContentHandler') {
-            my $retvalue = $handlers->{ContentHandler}->($request, $response);
-            $state = shift @{$handlers->{Handler}};
+        }
+        elsif ($state eq 'ContentHandler' or
+               $state eq 'ErrorHandler') {
+            # XXX: we should wrap this in an eval and return 500
+            my $retvalue = $handlers->{$state}->($request, $response);
+            shift @{$handlers->{Queue}};
             if ($retvalue == RC_WAIT) {
-                last HANDLERS;
+                if( $state eq 'ErrorHandler') {
+                    warn "ErrorHandler is not allowed to return RC_WAIT";
+                }
+                else {
+                    last HANDLERS;
+                }
             }
             next;
-        } elsif($state eq 'Cleanup') {
-            if ($response->streaming()) {
+        }
+        elsif ($state eq 'Cleanup') {
+            if (not $response->is_error and $response->streaming()) {
                 print "Turn on streaming\n";
                 $_[HEAP]->{wheels}->{$id}->set_output_filter(POE::Filter::Stream->new() );
-                unshift(@{$handlers->{Handler}},'Streaming');
+                unshift(@{$handlers->{Queue}},'Streaming');
                 next HANDLERS;
             }
 
             delete($response->{connection});
             delete($request->{connection});
 
-            if ( $request->protocol eq 'HTTP/1.1' &&
-                 $request->header('Connection') ne 'close' ) { # keepalive
+            # under HTTP/1.1 connections are always kept alive, unless
+            # there's a Connection: close present
+            my $close = 1;
+            if ( $request->protocol eq 'HTTP/1.1' ) {
+                $close = 0;                   # keepalive
+                # It turns out the connection field can contain multiple
+                # comma separated values
+                my $conn = $request->header('Connection');
+                $close = 1 if qq(,$conn,) =~ /,\s*close\s*,/;
+            }
+
+            unless ($close) {
+                DEBUG and warn "Keepalive connection still active";
                 # I'm probably going to burn for this violation
                 # of encapsulation --richardc
                 my $httpd_filter = $_[HEAP]{wheels}{$id}[2];
                 %{ $httpd_filter } = ( type => 0,
                                        buffer => '',
                                        finish => 0 );
-                $handlers->{Handler} = $self->handler_queue;
+                # IMHO, Queue should be set in 'input' --PG
+                $handlers->{Queue} = $self->handler_queue;
             }
             else {
+                DEBUG and warn "Close connection";
                 delete($connection->{handlers});
                 delete($connection->{wheel});
                 delete($_[HEAP]->{c}->{$id});
                 delete($_[HEAP]->{wheels}->{$id});
             }
-            last;
-        } elsif ($state eq 'Streaming') {
+            last HANDLERS;
+        }
+        elsif ($state eq 'Streaming') {
             print "Streaming mode\n";
             $self->{StreamHandler}->($request, $response);
             last HANDLERS;
         }
 
-      DISPATCH:
-        while(1) {
+      DISPATCH:     # this is used for {Trans,Pre,Post}Handler
+        while (1) {
             my $handler = shift(@{$handlers->{$state}});
             last DISPATCH unless($handler);
             my $retvalue = $handler->($request,$response);
 
-            if($retvalue == RC_DENY) {
+            if ($retvalue == RC_DENY) {
                 last DISPATCH;
-            } elsif($retvalue == RC_WAIT) {
+            }
+            elsif ($retvalue == RC_WAIT) {
                 last HANDLERS;
             }
-
         }
 
-        $state = shift @{$handlers->{Handler}};
-        last unless($state);
+        shift @{$handlers->{Queue}};
+        last unless(0 != @{$handlers->{Queue}});
     }
-
 }
 
 sub state_Map {
     my $self = shift;
     my $path = shift;
     my $handlers = shift;
+    my $request = shift;
     my $filename;
     (undef, $path,$filename) = File::Spec->splitpath($path);
     my @dirs = File::Spec->splitdir($path);
     pop @dirs;
-    push(@dirs, $filename) if($filename);
-    my $fulldir;
 
-    my (@pre,$content,@post);
+    DEBUG and warn "dirs=", join ',', @dirs;
 
+    my @check;
+    my $fullpath;
     foreach my $dir (@dirs) {
-        $fulldir .= $dir.'/';
-        if (exists($self->{PreHandler}->{$fulldir})) {
-            push @{$handlers->{PreHandler}}, @{$self->{PreHandler}->{$fulldir}};
-        }
-        if (exists($self->{PostHandler}->{$fulldir})) {
-            push @{$handlers->{PostHandler}}, @{$self->{PostHandler}->{$fulldir}};
-        }
-        if (exists($self->{ContentHandler}->{$fulldir})) {
-            $handlers->{ContentHandler} = $self->{ContentHandler}->{$fulldir};
+        $fullpath .= $dir.'/';
+        push @check, $fullpath;
+    }
+
+    push(@check, "$check[-1]$filename") if($filename);
+
+    DEBUG and warn "check=", join ',', @check;
+
+    my @todo;
+    unless ($request->is_error) {
+        @todo=qw(PreHandler ContentHandler PostHandler);
+    }
+    else {
+        @todo=qw(ErrorHandler PostHandler);
+    }
+
+    foreach my $path (@check) {
+        foreach my $phase (@todo) {
+            next unless exists($self->{$phase}->{$path});
+            if ('ARRAY' eq ref $self->{$phase}{$path}) {
+                push @{$handlers->{$phase}}, @{$self->{$phase}->{$path}};
+            }
+            else {
+                $handlers->{$phase}=$self->{$phase}->{$path};
+            }
         }
     }
+    DEBUG and warn "Map ", Dumper $handlers;
 }
 
 sub state_Send {
@@ -268,6 +455,9 @@ sub state_Send {
     $wheel->put($response);
 }
 
+1;
+__END__
+
 
 =head1 NAME
 
@@ -277,9 +467,13 @@ POE::Component::Server::HTTP - Foundation of a POE HTTP Daemon
 
  use POE::Component::Server::HTTP;
  use HTTP::Status;
- $httpd = POE::Component::Server::HTTP->new(
+ my $aliases = POE::Component::Server::HTTP->new(
      Port => 8000,
-     ContentHandler => { '/' => \&handler },
+     ContentHandler => {
+           '/' => \&handler1,
+           '/dir/' => sub { ... },
+           '/file' => sub { ... }
+     },
      Headers => { Server => 'My Server' },
   );
 
@@ -290,7 +484,9 @@ POE::Component::Server::HTTP - Foundation of a POE HTTP Daemon
       return RC_OK;
   }
 
-  POE::Kernel->call($httpd, "shutdown");
+  POE::Kernel->call($aliases->{httpd}, "shutdown");
+  # next line isn't really needed
+  POE::Kernel->call($aliases->{tcp}, "shutdown");
 
 =head1 DESCRIPTION
 
@@ -306,9 +502,12 @@ will be run during the cause of the request.
 
 =head2 Handlers
 
-Handlers are put on a stack in fifo order. The path /foo/bar/baz/ will
-first push the handlers of / then of /foo/ then of /foo/bar/ and lastly
-/foo/bar/baz/,
+Handlers are put on a stack in fifo order. The path /foo/bar/baz/honk.txt
+will first push the handlers of / then of /foo/ then of /foo/bar/, then of
+/foo/bar/baz/, and lastly /foo/bar/baz/honk.txt.  Pay attention to
+directories!  A request for /honk will not match /honk/ as you are used to
+with apache.  If you want /honk to act like a directory, you should have
+a handler for /honk which redirects to /honk/.
 
 However, there can be only one ContentHandler and if any handler installs
 a ContentHandler that will override the old ContentHandler.
@@ -375,6 +574,14 @@ response object.
 
     new(ContentHandler => { '/' => sub {}, '/foo/' => \&foo});
 
+=item ErrorHandler
+
+This handler is called when there is a read or write error on the socket.
+This is most likely caused by the remote side closing the connection.
+$resquest->is_error and $response->is_error will return true.  Note that
+C<PostHanlder> will still called, but C<TransHandler> and C<PreHandler>
+won't be.  It is a map to coderefs just like ContentHandler is.
+
 =item PostHandler
 
 These handlers are run after the socket has been flushed.
@@ -404,7 +611,7 @@ L<URI>, L<POE> and L<POE::Filter::HTTPD>
 
 =item Document Connection Response and Request objects.
 
-=item Write tests
+=item Write more tests
 
 =item Add a PoCo::Server::HTTP::Session that matches a http session against poe session using cookies or other state system
 
@@ -420,8 +627,8 @@ L<URI>, L<POE> and L<POE::Filter::HTTPD>
 
 Arthur Bergman, arthur@contiller.se
 
+Additional hacking by Philip Gwyn, poe-at-pied.nu
+
 Released under the same terms as POE.
 
 =cut
-
-1;
