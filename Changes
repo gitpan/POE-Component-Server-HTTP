@@ -1,4 +1,6 @@
-Revision history for Perl extension POE::Component::Server::HTTP.
+0.07	Tuesday 22nd March, 2005
+    Make the test for 'close' in the Connection: close case
+    insensitive (iPhoto 5 fixup from Dieter Mücke)
 
 0.06	Sunday 2nd January, 2005
     Added status messages to t/10_run.t

@@ -16,7 +16,7 @@ use POE qw(Wheel::ReadWrite Driver::SysRW Session Filter::Stream Filter::HTTPD);
 use POE::Component::Server::TCP;
 use Sys::Hostname qw(hostname);
 
-$VERSION = "0.06";
+$VERSION = "0.07";
 
 use POE::Component::Server::HTTP::Response;
 use POE::Component::Server::HTTP::Request;
@@ -346,7 +346,7 @@ sub execute {
                 # It turns out the connection field can contain multiple
                 # comma separated values
                 my $conn = $request->header('Connection');
-                $close = 1 if qq(,$conn,) =~ /,\s*close\s*,/;
+                $close = 1 if qq(,$conn,) =~ /,\s*close\s*,/i;
             }
 
             unless ($close) {
