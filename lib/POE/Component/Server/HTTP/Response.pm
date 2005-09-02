@@ -47,7 +47,7 @@ sub continue {
 sub close {
     my $self = shift;
     $self->{streaming} = 0;
-    print shift @{$self->{connection}->{handlers}->{Handler}};
+    shift @{$self->{connection}->{handlers}->{Queue}};
 }
 
 1;

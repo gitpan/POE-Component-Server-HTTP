@@ -26,8 +26,8 @@ END {
 }
 
 ####################################################################
-unless($pid) {                      # we are child
-    Test::Builder->no_ending(1);
+unless ($pid) {                      # we are child
+    Test::Builder->new->no_ending(1);
     # stop kernel from griping
     ${$poe_kernel->[POE::Kernel::KR_RUN]} |=
                                 POE::Kernel::KR_RUN_CALLED;

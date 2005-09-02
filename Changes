@@ -1,3 +1,8 @@
+0.08	Friday 2nd September, 2005
+    Added documentation and tests for streaming mode from Philip Gwyn.
+    Fixes for rt.cpan.org bugs #6747, #11349
+    Fixed t/30_error.t's call to Test::Builder.
+
 0.07	Tuesday 22nd March, 2005
     Make the test for 'close' in the Connection: close case
     insensitive (iPhoto 5 fixup from Dieter Mücke)

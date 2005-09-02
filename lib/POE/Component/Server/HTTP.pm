@@ -16,7 +16,7 @@ use POE qw(Wheel::ReadWrite Driver::SysRW Session Filter::Stream Filter::HTTPD);
 use POE::Component::Server::TCP;
 use Sys::Hostname qw(hostname);
 
-$VERSION = "0.07";
+$VERSION = "0.08";
 
 use POE::Component::Server::HTTP::Response;
 use POE::Component::Server::HTTP::Request;
@@ -210,9 +210,11 @@ sub input {
     my $c = $_[HEAP]->{c}->{$id};
     my $self = $_[HEAP]->{self};
 
-    $request->uri->scheme('http');
-    $request->uri->host($self->{Hostname});
-    $request->uri->port($self->{Port});
+    if ($request->uri) {
+        $request->uri->scheme('http');
+        $request->uri->host($self->{Hostname});
+        $request->uri->port($self->{Port});
+    }
     $request->{connection} = $c;
 
     my $response = POE::Component::Server::HTTP::Response->new();
@@ -303,7 +305,8 @@ sub execute {
         DEBUG and warn "Execute state=$state id=$id";
 
         if ($state eq 'Map') {
-            $self->state_Map( $request->uri->path, $handlers, $request );
+            $self->state_Map( $request->uri ? $request->uri->path : '',
+                              $handlers, $request );
             shift @{$handlers->{Queue}};
             next;
         }
@@ -314,8 +317,11 @@ sub execute {
         }
         elsif ($state eq 'ContentHandler' or
                $state eq 'ErrorHandler') {
+            # this empty sub should really make a 404
+            my $sub = $handlers->{ $state } || sub {};
+
             # XXX: we should wrap this in an eval and return 500
-            my $retvalue = $handlers->{$state}->($request, $response);
+            my $retvalue = $sub->($request, $response);
             shift @{$handlers->{Queue}};
             if ($retvalue == RC_WAIT) {
                 if( $state eq 'ErrorHandler') {
@@ -329,7 +335,6 @@ sub execute {
         }
         elsif ($state eq 'Cleanup') {
             if (not $response->is_error and $response->streaming()) {
-                print "Turn on streaming\n";
                 $_[HEAP]->{wheels}->{$id}->set_output_filter(POE::Filter::Stream->new() );
                 unshift(@{$handlers->{Queue}},'Streaming');
                 next HANDLERS;
@@ -370,7 +375,6 @@ sub execute {
             last HANDLERS;
         }
         elsif ($state eq 'Streaming') {
-            print "Streaming mode\n";
             $self->{StreamHandler}->($request, $response);
             last HANDLERS;
         }
@@ -449,6 +453,7 @@ sub state_Send {
         $response->header('Date',time2str(time));
     }
     if (!($response->header('Content-Lenth')) && !($response->streaming())) {
+        use bytes;
         $response->header('Content-Length',length($response->content));
     }
 
@@ -587,6 +592,88 @@ won't be.  It is a map to coderefs just like ContentHandler is.
 These handlers are run after the socket has been flushed.
 
     new(PostHandler => { '/' => [sub {}], '/foo/' => [\&foo]});
+
+
+=item StreamHandler
+
+If you turn on streaming in any other handler, the request is placed in
+streaming mode.  This handler is called, with the usual parameters, when
+streaming mode is first entered, and subsequently when each block of data is
+flushed to the client.
+
+Streaming mode is turned on via the C<$response> object:
+
+    $response->streaming(1);
+
+You deactivate streaming mode with the same object:
+
+    $response->close;
+
+Content is also sent to the client via the C<$response> object:
+
+    $response->send($somedata);
+
+The output filter is set to POE::Filter::Stream, which passes the data
+through unchanged.  If you are doing a multipart/mixed response, you will
+have to set up your own headers.
+
+Example:
+
+    sub new {
+        .....
+        POE::Component::Filter::HTTP->new(
+                 ContentHandler => { '/someurl' => sub { $self->someurl(@_) },
+                 StreamHandler  => sub { $self->stream(@_),
+            );
+    }
+
+    sub someurl {
+        my($self, $resquest, $response)=@_;
+        $self->{todo} = [ .... ];
+        $response->streaming(1);
+        $response->code(RC_OK);         # you must set up your response header
+        $response->content_type(...);
+
+        return RC_OK;
+    }
+
+    sub stream {
+        my($self, $resquest, $response)=@_;
+
+        if( @{$self->{todo}} ) {
+            $response->send(shift @{$self->{todo}});
+        }
+        else {
+            $response->close;
+        }
+    }
+
+Another example can be found in t/30_stream.t.  The parts dealing with
+multipart/mixed are well documented and at the end of the file.
+
+NOTE: Changes in streaming mode are only verified when StreamHandler exits.
+So you must either turn streaming off in your StreamHandler, or make sure
+that the StreamHandler will be called again.  This last is done by sending
+data to the client.  If for some reason you have no data to send, you can
+get the same result with C<continue>. Remember that this will also cause the
+StreamHandler to be called one more time.
+
+    my $aliases=POE::Component::Filter::HTTP->new( ....);
+
+    # and then, when the end of the stream in met
+    $response->close;
+    $response->continue;
+
+NOTE: even when the stream ends, the client connection will be held open if
+Keepalive is active.  To force the connection closed, set the I<Connection>
+header to I<close>:
+
+    $resquest->header(Connection => 'close');
+
+I<This might be a bug.  Are there any cases where we'd want to keep the
+connection open after a stream?>
+
+
 
 =back
 

@@ -1,11 +1,14 @@
-POE/Component/Server/HTTP version 0.01
-======================================
+POE/Component/Server/HTTP
+=========================
 
-This is the first experimental release of PoCo::Server::HTTP
-It makes it easy to write HTTP servers in POE.
+This is a nearly stable release of PoCo::Server::HTTP It makes it easy to
+write HTTP servers in POE.
 
 The design is roughly based on the ideas of mod_perl and lets you
 add hooks and intercept in a numbber of different stages.
+
+Look at the test cases in t/ if you want help.  In particular, 
+t/20_stream.t contains a good example of multipart/mixed responses.
 
 
 INSTALLATION
@@ -17,15 +20,10 @@ To install this module type the following:
    make test
    make install
 
-DEPENDENCIES
-
-This module requires these other modules and libraries:
-
-POE 0.17_02
-
 COPYRIGHT AND LICENCE
 
 Released under the same terms as POE
 
 Copyright (C) 2002 Arthur Bergman
+Copyright (C) 2005 Philip Gwyn
 
