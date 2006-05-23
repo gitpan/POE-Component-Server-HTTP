@@ -16,7 +16,7 @@ use POE qw(Wheel::ReadWrite Driver::SysRW Session Filter::Stream Filter::HTTPD);
 use POE::Component::Server::TCP;
 use Sys::Hostname qw(hostname);
 
-$VERSION = "0.08";
+$VERSION = "0.09";
 
 use POE::Component::Server::HTTP::Response;
 use POE::Component::Server::HTTP::Request;
@@ -27,7 +27,7 @@ use constant DEBUG => 0;
 use Carp;
 
 my %default_headers = (
-    "Server" => "POE HTTPD Compontent/$VERSION ($])",
+    "Server" => "POE HTTPD Component/$VERSION ($])",
    );
 
 sub new {
@@ -356,12 +356,10 @@ sub execute {
 
             unless ($close) {
                 DEBUG and warn "Keepalive connection still active";
-                # I'm probably going to burn for this violation
-                # of encapsulation --richardc
-                my $httpd_filter = $_[HEAP]{wheels}{$id}[2];
-                %{ $httpd_filter } = ( type => 0,
-                                       buffer => '',
-                                       finish => 0 );
+                # Breaking encapsulation causes immolation --richardc
+                # We'll need a new POE::Filter::HTTPD
+                $_[HEAP]{wheels}{$id}[2] = (ref $_[HEAP]{wheels}{$id}[2])->new;
+
                 # IMHO, Queue should be set in 'input' --PG
                 $handlers->{Queue} = $self->handler_queue;
             }
@@ -440,7 +438,8 @@ sub state_Map {
             }
         }
     }
-    DEBUG and warn "Map ", Dumper $handlers;
+    require Data::Dumper if DEBUG;
+    DEBUG and warn "Map ", Data::Dumper::Dumper( $handlers );
 }
 
 sub state_Send {

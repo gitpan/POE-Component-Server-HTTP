@@ -1,9 +1,10 @@
 #!/usr/bin/perl -w
 
 use strict;
-use Test::More tests => 6;
+use Test::More tests => 6 * 2;
 
 use LWP::UserAgent;
+use LWP::ConnCache;
 use HTTP::Request;
 use POE::Kernel;
 use POE::Component::Server::HTTP;
@@ -31,6 +32,7 @@ if ($pid) {                      # we are parent
     print STDERR "continue\n";
 
     my $UA = LWP::UserAgent->new;
+  again:
     my $req=HTTP::Request->new(GET => "http://localhost:$PORT/");
     my $resp=$UA->request($req);
 
@@ -53,6 +55,11 @@ if ($pid) {                      # we are parent
     $content=$resp->content;
     ok($content =~ /my friend/, 'my friend');
 
+    unless ($UA->conn_cache) {
+        diag( "Enabling Keep-Alive and going again" );
+        $UA->conn_cache( LWP::ConnCache->new() );
+        goto again;
+    }
 }
 
 ####################################################################
